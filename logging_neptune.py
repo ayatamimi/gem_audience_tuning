@@ -94,8 +94,15 @@ class CheckpointManager:
 
         # in online mode, clean up temp files we just created
         if not self.is_offline:
-            try: last_path.unlink(missing_ok=True)
-            except Exception: pass
+            # make sure Neptune has finished using the file
+            try:
+                self.run.sync()
+            except Exception:
+                pass
+            try:
+                last_path.unlink(missing_ok=True)
+            except Exception:
+                pass
 
         return best_loss
 
