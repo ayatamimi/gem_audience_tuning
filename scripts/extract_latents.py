@@ -37,7 +37,7 @@ def extract_latents_from_neptune(run_id: str):
 
     model = build_model(cfg).to(device)
     model.eval()
-    out_dir = Path(f"/local/reyhasjb/aud_tuning/vqvae/{run_id}")
+    out_dir = Path(f"/local/altamabp/audience_tuning-gem/vqvae/{run_id}")#(f"/local/reyhasjb/aud_tuning/vqvae/{run_id}")
     out_dir.mkdir(parents=True, exist_ok=True)
     ckpt_path = out_dir / "vqvae_val_best.pt"
     print("Downloading best validation checkpoint")
@@ -47,27 +47,36 @@ def extract_latents_from_neptune(run_id: str):
     train_loader, val_loader, _ = build_dataloaders(cfg)
 
     def extract(loader):
-        all_latents, all_indices = [], []
-        for images, _ in tqdm(loader, desc="Extracting latents"):
+        all_latents, all_indices, all_labels = [], [] ,[]
+        #for images, batch_labels in tqdm(loader, desc="Extracting latents and labels"):    
+            
+        for k, (images, batch_labels) in tqdm(enumerate(loader), desc="Extracting latents and labels"):
             images = images.to(device, non_blocking=True)
             with torch.no_grad():
                 quant_b, _, id_b = model.encode(images)
             all_latents.append(quant_b.cpu().numpy())
             all_indices.append(id_b.cpu().numpy())
-        return np.concatenate(all_latents, axis=0), np.concatenate(all_indices, axis=0)
+            all_labels.append(batch_labels.cpu().numpy())
+        return np.concatenate(all_latents, axis=0), np.concatenate(all_indices, axis=0), np.concatenate(all_labels, axis=0)
 
 
-    print("Extracting training latents...")
-    train_latents, train_indices = extract(train_loader)
-    print("Extracting validation latents...")
-    val_latents, val_indices = extract(val_loader)
-    print("Saving latents...")
+
     latents_dir = out_dir / "latents"
     latents_dir.mkdir(parents=True, exist_ok=True)
-    np.save(latents_dir / "train_latents.npy", train_latents)
-    np.save(latents_dir / "train_indices.npy", train_indices)
+    print("Extracting validation latents and labels...")
+    val_latents, val_indices, val_labels = extract(val_loader)
+    print("Saving val latents and labels...")
     np.save(latents_dir / "val_latents.npy", val_latents)
     np.save(latents_dir / "val_indices.npy", val_indices)
+    np.save(latents_dir / "val_labels.npy", val_labels)
+    
+    print("Extracting training latents and labels...")
+    train_latents, train_indices, train_labels = extract(train_loader)
+    print("Saving train latents and labels...")
+    np.save(latents_dir / "train_indices.npy", train_indices)
+    np.save(latents_dir / "train_labels.npy", train_labels)
+    np.save(latents_dir / "train_latents.npy", train_latents)
+
     print(f"Saved all latents under {latents_dir}")
 
     run.stop()
@@ -75,6 +84,6 @@ def extract_latents_from_neptune(run_id: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract latent representations from a trained VQ-VAE Neptune run.")
-    parser.add_argument("--run_id", type=str, default="AUD-17", help="Neptune run ID")
+    parser.add_argument("--run_id", type=str, default="AUD-91", help="Neptune run ID")
     args = parser.parse_args()
     extract_latents_from_neptune(args.run_id)

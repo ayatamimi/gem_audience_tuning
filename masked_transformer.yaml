@@ -1,0 +1,33 @@
+# configs/masked_transformer.yaml
+
+data:
+  run_id: AUD-68
+  root_latents: /local/altamabp/audience_tuning-gem/vqvae/${data.run_id}/latents
+  train_latents: ${data.root_latents}/train_latents.npy
+  train_indices: ${data.root_latents}/train_indices.npy
+  train_labels: ${data.root_latents}/train_labels.npy
+  val_latents: ${data.root_latents}/val_latents.npy
+  val_indices: ${data.root_latents}/val_indices.npy
+  val_labels: ${data.root_latents}/val_labels.npy
+
+model:
+  vocab_size: 32 #64
+  num_layers: 6
+  num_heads: 3
+  hidden_dim: 512
+  dropout: 0.1
+  mask_prob: 0.5
+  embed_dim: 27 #16 #8
+
+training:
+  bs: 32
+  epochs: 500
+  lr: 15e-4
+  scheduler: linear_warmup
+  warmup_steps: 10000
+  seed: 102
+  loss_masked: False
+
+system:
+  run_dir: ./runs
+  torch_compile: false

@@ -5,6 +5,7 @@ from typing import Optional
 import socket
 from dotenv import load_dotenv
 import yaml
+import numpy as np
 
 
 @dataclass
@@ -22,6 +23,21 @@ class Config:
     # system
     world_size: int; local_rank: int; run_dir: str; torch_compile: bool
 
+@dataclass
+class TransformerConfig:
+    # data
+    train_latents: str; train_indices: str; train_labels: str; val_latents: str; val_indices: str; val_labels: str;
+
+    # model
+    embed_dim: int; vocab_size: int; num_layers: int; num_heads: int
+    hidden_dim: int; dropout: float; mask_prob: float
+
+    # training
+    bs: int; epochs: int; lr: float; scheduler: str; warmup_steps: int; seed: int; loss_masked: bool
+
+    # system
+    run_dir: str; torch_compile: bool
+
 
 def _b(s: Optional[str], default: bool) -> bool:
     if s is None:
@@ -32,6 +48,7 @@ def _maybe_int(s: Optional[str]) -> Optional[int]:
     return int(s) if (s is not None and s != "" and s.lower() != "null") else None
 
 def _load_env():
+    cluster_env = "envs/ini.env"
     # Load from .env or ENV_FILE if provided
     if load_dotenv is None:
         raise RuntimeError("Install python-dotenv to load ENV_FILE or .env")
@@ -49,6 +66,48 @@ def _load_env():
         elif os.path.exists(".env"):  # last fallback
             load_dotenv(dotenv_path=".env", override=False)
 
+import re
+
+def _interpolate_dict(d: dict) -> dict:
+    """
+    Recursively interpolates ${...} placeholders in YAML configs.
+    Supports both environment variables and dotted YAML references.
+    """
+    pattern = re.compile(r"\$\{([a-zA-Z0-9_.]+)\}")
+
+    def _resolve_ref(key_path: str):
+        env_val = os.getenv(key_path)
+        if env_val is not None:
+            return env_val
+        cur = d
+        for part in key_path.split("."):
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                return None
+        return cur if not isinstance(cur, dict) else None
+
+    def _expand_once(obj):
+        if isinstance(obj, str):
+            matches = pattern.findall(obj)
+            for match in matches:
+                ref = _resolve_ref(match)
+                if ref is not None:
+                    obj = obj.replace(f"${{{match}}}", str(ref))
+            return obj
+        elif isinstance(obj, dict):
+            return {k: _expand_once(v) for k, v in obj.items()}
+        elif isinstance(obj, list):
+            return [_expand_once(v) for v in obj]
+        return obj
+    for _ in range(5):
+        expanded = _expand_once(d)
+        if str(expanded) == str(d):
+            break
+        d = expanded
+
+    return d
+
 
 def _load_config_file() -> dict:
     cfg_path = os.getenv("CONFIG_FILE")
@@ -56,7 +115,11 @@ def _load_config_file() -> dict:
         raise RuntimeError("CONFIG_FILE environment variable must point to a YAML config file.")
 
     with open(cfg_path, "r") as f:
-        return yaml.safe_load(f) or {}
+        text = os.path.expandvars(f.read()) 
+        cfg = yaml.safe_load(text) or {}
+        cfg = _interpolate_dict(cfg)
+        return cfg
+
 
 def _get(d: dict, path: str, default=None):
     """dot-path getter: example: 'training.bs' returns d['training']['bs'] if present."""
@@ -113,4 +176,53 @@ def get_config() -> Config:
         embed_dim=embed_dim, latent_channel=latent_channel, rotation_trick=rotation_trick, kmeans_init=kmeans_init,
         decay=decay, learnable_codebook=learnable_codebook, ema_update=ema_update, threshold_dead=threshold_dead,
         world_size=world_size, local_rank=local_rank, run_dir=run_dir, torch_compile=torch_compile
+    )
+
+def get_transformer_config() -> TransformerConfig:
+    _load_env()
+    f = _load_config_file()
+
+    # Auto-detect embed_dim from latent file
+    train_latent_path = _get(f, "data.train_latents")
+    embed_dim = None
+    try:
+        latent_sample = np.load(train_latent_path, mmap_mode="r")
+        if latent_sample.ndim == 3:
+            embed_dim = latent_sample.shape[-1]
+            print(f"[config] Detected embed_dim = {embed_dim} from shape (N, L, D)")
+        elif latent_sample.ndim == 4:
+            embed_dim = latent_sample.shape[1]
+            print(f"[config] Detected embed_dim = {embed_dim} from shape (N, D, H, W)")
+        else:
+            print(f"[config] Warning: unexpected latent shape {latent_sample.shape}")
+    except Exception as e:
+        print(f"[config] Could not auto-detect embed_dim: {e}")
+
+    return TransformerConfig(
+        train_latents=train_latent_path,
+        train_indices=_get(f, "data.train_indices"),
+        train_labels=_get(f, "data.train_labels"),
+        val_latents=_get(f, "data.val_latents"),
+        val_indices=_get(f, "data.val_indices"),
+        val_labels=_get(f, "data.val_labels"),
+
+        # Use auto-detected embed_dim if available, otherwise fallback
+        embed_dim=int(_get(f, "model.embed_dim", embed_dim if embed_dim else 8)),
+        vocab_size=int(_get(f, "model.vocab_size", 64)),
+        num_layers=int(_get(f, "model.num_layers", 6)),
+        num_heads=int(_get(f, "model.num_heads", 3)),
+        hidden_dim=int(_get(f, "model.hidden_dim", 512)),
+        dropout=float(_get(f, "model.dropout", 0.1)),
+        mask_prob=float(_get(f, "model.mask_prob", 0.15)),
+
+        bs=int(_get(f, "training.bs", 32)),
+        epochs=int(_get(f, "training.epochs", 50)),
+        lr=float(_get(f, "training.lr", 1e-4)),
+        scheduler=_get(f, "training.scheduler", "linear_warmup"),
+        warmup_steps=int(_get(f, "training.warmup_steps", 1000)),
+        seed=int(_get(f, "training.seed", 42)),
+        loss_masked=_get(f, "training.loss_masked", True),
+
+        run_dir=_get(f, "system.run_dir", "./runs"),
+        torch_compile=_b(os.getenv("TORCH_COMPILE"), _get(f, "system.torch_compile", False))
     )

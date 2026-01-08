@@ -33,6 +33,7 @@ def initialize_model(params):
         threshold_ema_dead_code=params.get("threshold_dead", None),
     )
 
+
 def init_seeds(seed=None):
     seed = random.randint(0, 2147483647) if seed is None else seed
     random.seed(seed)

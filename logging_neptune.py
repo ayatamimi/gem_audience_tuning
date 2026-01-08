@@ -6,6 +6,7 @@ import neptune
 import os
 from pathlib import Path
 import torch
+from typing import Optional
 
 class NeptuneRun:
     def __init__(self):
@@ -51,7 +52,7 @@ class CheckpointManager:
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save(model.state_dict(), path)
 
-    def save_and_upload(self, model, loss: float, best_loss: float, phase: str, epoch: int | None = None) -> float:
+    def save_and_upload(self, model, loss: float, best_loss: float, phase: str, epoch: Optional[int] = None) -> float:
         """
         Always upload a '..._last' file. If loss improved, also update '..._best'.
         - offline: save persistent files in RUN_DIR/ckpts and keep them.

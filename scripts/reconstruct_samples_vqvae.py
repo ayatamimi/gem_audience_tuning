@@ -28,7 +28,7 @@ def reconstruct_samples_from_neptune(run_id: str, num_samples: int = 5):
         data_root=params.get("data_root", "./data"),
         train_subdir=params.get("train_subdir", "train"),
         val_subdir=params.get("val_subdir", "val"),
-        input_size=int(params.get("input_size", 256)),
+        input_size=int(params.get("input_size", 128)),
         bs=int(params.get("bs", 4)),
         epochs=int(params.get("epochs", 1)),
         lr=float(params.get("lr", 3e-4)),
@@ -37,10 +37,10 @@ def reconstruct_samples_from_neptune(run_id: str, num_samples: int = 5):
         seed=int(params.get("seed", 42)),
         model_type=params.get("model_type", "EnhancedFlatVQVAE"),
         num_levels=int(params.get("num_levels", 1)),
-        codebook_size=int(params.get("codebook_size", 512)),
-        codebook_dim=int(params.get("codebook_dim", 64)),
-        embed_dim=int(params.get("embed_dim", 64)),
-        latent_channel=int(params.get("latent_channel", 144)),
+        codebook_size=int(params.get("codebook_size", 32)),
+        codebook_dim=int(params.get("codebook_dim", 16)),
+        embed_dim=int(params.get("embed_dim", 16)),
+        latent_channel=int(params.get("latent_channel", 32)),
         rotation_trick=bool(params.get("rotation_trick", False)),
         kmeans_init=bool(params.get("kmeans_init", False)),
         decay=float(params.get("decay", 0.99)),
@@ -73,18 +73,18 @@ def reconstruct_samples_from_neptune(run_id: str, num_samples: int = 5):
 
 
     grid = make_grid(torch.cat([imgs.cpu(), recons.cpu()]), nrow=num_samples, normalize=True, value_range=(-1, 1))
-    img_path = out_dir / "reconstructions.png"
+    img_path = out_dir / "reconstructions_vqvae.png"
     save_image(grid, img_path)
     print(f"Saved reconstruction image to {img_path}")
 
     #Upload to Neptune
-    run["artifacts/reconstruction_image"].upload(str(img_path))
+    #run["artifacts/reconstruction_image"].upload(str(img_path))
     run.stop()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Reconstruct samples from a trained VQ-VAE Neptune run.")
-    parser.add_argument("--run_id", type=str, default="AUD-6", help="Neptune run ID")
+    parser.add_argument("--run_id", type=str, default="AUD-91", help="Neptune run ID")
     parser.add_argument("--num_samples", type=int, default=5)
     args = parser.parse_args()
     reconstruct_samples_from_neptune(args.run_id, args.num_samples)

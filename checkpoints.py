@@ -3,8 +3,9 @@ import signal
 import time
 from pathlib import Path
 import torch
+from typing import Optional, Dict, Any
 
-def save_checkpoint(path: Path, model, optimizer, epoch: int, extra: dict | None = None):
+def save_checkpoint(path: Path, model, optimizer, epoch: int, extra: Optional[Dict[str, Any]] = None):
     path.parent.mkdir(parents=True, exist_ok=True)
     state = {
         "model": model.state_dict(),
