@@ -133,4 +133,7 @@ jobs/
 profiles/**/.env
 .env*
 runs/
-vqvae/temp/
+vqvae/temp/vqvae/outputs/
+checkpoints/
+*.npy
+*.pth
