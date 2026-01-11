@@ -165,19 +165,27 @@ def reconstruct_with_transformer(vqvae_run_id, transformer_run_id, num_samples=5
     recon_by_bias = []  # length 10, each (B, 3, H_img, W_img)
 
     for bias_id in range(10):
-        # build bias labels (same bias for all samples in batch)
-        labels_bias = torch.full(
-            (B,),
-            bias_id,
-            dtype=torch.long,
-            device=zq_masked.device
-        )
-        
-        # transformer prediction using EMBEDDING
-        logits = trans_model(zq_masked, labels_bias)
-        
-        pred_indices = logits.argmax(dim=-1)
+        # 1) build one-hot bias (same bias for all samples in batch)
+        idx_t = torch.full((B,), bias_id, dtype=torch.long, device=zq_masked.device)  # (B,)
+        N, T, _ = zq_masked.shape
+        idx_t_exp = idx_t.unsqueeze(1).expand(N, T)  # (B, T)
 
+        one_hot_labels = torch.nn.functional.one_hot(
+            idx_t_exp, num_classes=10
+        ).to(dtype=zq_masked.dtype)  # (B, T, 10)
+
+        masked_exp_quantizes = torch.cat([zq_masked, one_hot_labels], dim=2)  # (B, T, C+10)
+
+        # mask feature
+        mask_feat = mask.to(masked_exp_quantizes.dtype).unsqueeze(-1)  # (B, T, 1)
+
+        masked_exp_mask_feat_quantizes = torch.cat(
+            [masked_exp_quantizes, mask_feat], dim=-1
+        )  # (B, T, C+10+1)
+
+        # 2) transformer prediction
+        logits = trans_model(masked_exp_quantizes) #masked_exp_mask_feat_quantizes) #  # (B, T, vocab_size)
+        pred_indices = logits.argmax(dim=-1)  # (B, T)
 
         completed_indices = ids.clone()
         completed_indices[mask] = pred_indices[mask]
