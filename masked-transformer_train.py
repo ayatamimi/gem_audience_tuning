@@ -92,8 +92,13 @@ def _collate_with_optional_probs(batch):
         probs = torch.stack(ps, dim=0)
     return z, idx, y, probs
 
+def soften_probs(p, temp=2.0, eps=1e-8):
+    logits = torch.log(p.clamp_min(eps))
+    return torch.softmax(logits / temp, dim=-1)
+
 
 def train(cfg, resume_from=None):
+
     set_seed(cfg.seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -197,6 +202,7 @@ def train(cfg, resume_from=None):
             return {"probs": probs}
         use_probs = (torch.rand((), device=labels.device) < p_use_probs)
         return {"probs": probs} if bool(use_probs) else {"labels": labels}
+ 
 
     for epoch in range(cfg.epochs):
         # --- Train ---
@@ -215,7 +221,20 @@ def train(cfg, resume_from=None):
             optimizer.zero_grad(set_to_none=True)
 
             cond_kwargs = _choose_conditioning(labels, probs)
+            
+            
+            # SOFTEN ONLY IF WE ARE USING PROBS
+            if "probs" in cond_kwargs:
+                cond_kwargs["probs"] = soften_probs(cond_kwargs["probs"], temp=2.0)
+            
             logits = model(zq_masked, **cond_kwargs)
+
+            # log entropy (entropy should increase slightly compared to raw probs)
+            if "probs" in cond_kwargs:
+                p = cond_kwargs["probs"]
+                ent = -(p * torch.log(p + 1e-8)).sum(dim=1).mean()
+                run["train/cond_entropy"].log(ent.item())
+                
 
             if cfg.loss_masked:
                 loss = criterion(logits[mask], target[mask])

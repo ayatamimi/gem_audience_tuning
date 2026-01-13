@@ -1,0 +1,57 @@
+# configs/masked_transformer.yaml
+
+data:
+  
+  root_laterun_id: AUD-68nts: /local/altamabp/audience_tuning-gem/vqvae/${data.run_id}/latents
+  train_latents: ${data.root_latents}/train_latents.npy
+  train_indices: ${data.root_latents}/train_indices.npy
+  train_labels: ${data.root_latents}/train_labels.npy
+  val_latents: ${data.root_latents}/val_latents.npy
+  val_indices: ${data.root_latents}/val_indices.npy
+  val_labels: ${data.root_latents}/val_labels.npy
+  
+  # Optional: classifier soft conditioning (10-class vectors)
+  train_probs: ${data.root_latents}/train_probs.npy
+  val_probs: ${data.root_latents}/train_probs.npy
+
+model:
+  vocab_size: 32 #64
+  num_layers: 6
+  num_heads: 3
+  hidden_dim: 256 #512
+  dropout: 0.1
+  mask_prob: 0.5
+  #embed_dim: 27 #16 #8
+
+
+  label_dim: 8 #size of internal conditioning embedding (e.g. 8 or 16) 
+  num_classes: 10 #classifier output dimension (default 10)
+  
+
+# --- training ---
+bs: 16
+epochs: 100 #50
+lr: 3.0e-4
+
+
+loss_masked: true      # only compute loss on masked tokens
+
+# conditioning mode: 
+# 0.0 = labels only
+# 1.0 = classifier probs only
+# 0.0 < p < 1.0 = mixed (recommended) e.g: 0.25 → more label-driven / 0.75 → more classifier-driven
+p_use_probs: 0.5  # probability of using classifier probs/logits instead of labels (float32 in [0,1], default 0.0) / 0.0 → always labels / 1.0 → always probs / 0.5 → half/half
+
+# --- optimization ---
+scheduler: cosine
+warmup_steps: 1000
+
+# --- misc ---
+seed: 42
+num_workers: 4
+run_dir: ./runs
+
+
+system:
+  run_dir: ./runs
+  torch_compile: false

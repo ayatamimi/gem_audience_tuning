@@ -164,40 +164,97 @@ def reconstruct_with_transformer(vqvae_run_id, transformer_run_id, num_samples=5
     # ----- generate 10 transformer completions with biases 0..9 -----
     recon_by_bias = []  # length 10, each (B, 3, H_img, W_img)
 
-    for bias_id in range(10):
-        # 1) build one-hot bias (same bias for all samples in batch)
-        idx_t = torch.full((B,), bias_id, dtype=torch.long, device=zq_masked.device)  # (B,)
-        N, T, _ = zq_masked.shape
-        idx_t_exp = idx_t.unsqueeze(1).expand(N, T)  # (B, T)
+######added (RAM efficient version)
+    # -------------------- MEMORY-SAFE CONCAT BUFFER --------------------
+    N, T, C_lat = zq_masked.shape
+    K = 10  # num_classes for one-hot
+    
+    # Allocate the concatenated tensor once and reuse it every iteration:
+    # masked_exp_quantizes will be exactly equivalent to torch.cat([zq_masked, one_hot], dim=-1)
+    masked_exp_quantizes = torch.empty(
+        (N, T, C_lat + K),
+        device=zq_masked.device,
+        dtype=zq_masked.dtype,
+    )
+    
+    # View into the one-hot tail (no extra allocation)
+    onehot_view = masked_exp_quantizes[..., C_lat:]  # (N, T, K)
+    # ------------------------------------------------------------------------------
+    
 
-        one_hot_labels = torch.nn.functional.one_hot(
-            idx_t_exp, num_classes=10
-        ).to(dtype=zq_masked.dtype)  # (B, T, 10)
+    #####added
+    # ---- preallocate concat buffer (prevents RAM/VRAM spikes) ----
+    N, T, C_lat = zq_masked.shape
+    K = 10  # num_classes
+    
+    masked_exp_quantizes = torch.empty(
+        (N, T, C_lat + K),
+        device=zq_masked.device,
+        dtype=zq_masked.dtype,
+    )
+    onehot_view = masked_exp_quantizes[..., C_lat:]  # (B, T, K) view (no alloc)
+    # -------------------------------------------------------------
+    ############
 
-        masked_exp_quantizes = torch.cat([zq_masked, one_hot_labels], dim=2)  # (B, T, C+10)
 
-        # mask feature
-        mask_feat = mask.to(masked_exp_quantizes.dtype).unsqueeze(-1)  # (B, T, 1)
 
-        masked_exp_mask_feat_quantizes = torch.cat(
-            [masked_exp_quantizes, mask_feat], dim=-1
-        )  # (B, T, C+10+1)
 
-        # 2) transformer prediction
-        logits = trans_model(masked_exp_quantizes) #masked_exp_mask_feat_quantizes) #  # (B, T, vocab_size)
-        pred_indices = logits.argmax(dim=-1)  # (B, T)
 
-        completed_indices = ids.clone()
-        completed_indices[mask] = pred_indices[mask]
+# =============================================================================
+#     for bias_id in range(10):
+#         # 1) build one-hot bias (same bias for all samples in batch)
+#         idx_t = torch.full((B,), bias_id, dtype=torch.long, device=zq_masked.device)  # (B,)
+#         N, T, _ = zq_masked.shape
+#         idx_t_exp = idx_t.unsqueeze(1).expand(N, T)  # (B, T)
+# 
+# =============================================================================
+# =============================================================================
+#         one_hot_labels = torch.nn.functional.one_hot(
+#             idx_t_exp, num_classes=10
+#         ).to(dtype=zq_masked.dtype)  # (B, T, 10)
+# 
+#         masked_exp_quantizes = torch.cat([zq_masked, one_hot_labels], dim=2)  # (B, T, C+10)
+# 
+#         # mask feature
+#         mask_feat = mask.to(masked_exp_quantizes.dtype).unsqueeze(-1)  # (B, T, 1)
+# 
+#         masked_exp_mask_feat_quantizes = torch.cat(
+#             [masked_exp_quantizes, mask_feat], dim=-1
+#         )  # (B, T, C+10+1)
+# =============================================================================
 
-        # 3) decode to image
-        quant_completed = vqvae.quantize_b.get_codes_from_indices(
-            pred_indices #completed_indices.view(B, -1)
-        )
-        quant_completed = quant_completed.view(B, H, W, C).permute(0, 3, 1, 2)
-        recon_completed = vqvae.decode(quant_completed)  # (B, 3, H_img, W_img)
 
-        recon_by_bias.append(recon_completed.cpu())
+#######added (RAM friendly version)
+    # 1) per-sample labels from dataset
+    idx_t = labels  # (B,) already on device
+    if idx_t.dtype != torch.long:
+        idx_t = idx_t.long()
+    
+    # expand to tokens: (B,T)
+    idx_t_exp = idx_t.unsqueeze(1).expand(N, T)
+    
+    # build [zq_masked, one_hot(idx_t_exp)] EXACTLY, but memory-safe
+    masked_exp_quantizes[..., :C_lat] = zq_masked
+    onehot_view.zero_()
+    onehot_view.scatter_(2, idx_t_exp.unsqueeze(-1), 1)
+
+#############
+
+    # 2) transformer prediction
+    logits = trans_model(masked_exp_quantizes) #masked_exp_mask_feat_quantizes) #  # (B, T, vocab_size)
+    pred_indices = logits.argmax(dim=-1)  # (B, T)
+
+    completed_indices = ids.clone()
+    completed_indices[mask] = pred_indices[mask]
+
+    # 3) decode to image
+    quant_completed = vqvae.quantize_b.get_codes_from_indices(
+        pred_indices #completed_indices.view(B, -1)
+    )
+    quant_completed = quant_completed.view(B, H, W, C).permute(0, 3, 1, 2)
+    recon_completed = vqvae.decode(quant_completed)  # (B, 3, H_img, W_img)
+
+    recon_by_bias.append(recon_completed.cpu())
 
     # ----- build grid: 1 row per sample, 13 columns -----
     rows = []

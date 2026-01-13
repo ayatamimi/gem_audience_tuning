@@ -15,7 +15,7 @@ import torch.nn.functional as F
 from configs.config import Config
 
 
-NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT", "altamimi.aya/UTKFaces")
+NEPTUNE_PROJECT = os.getenv("NEPTUNE_PROJECT", "tns//audience-tuning") #altamimi.aya/UTKFaces")
 NEPTUNE_API_TOKEN = os.getenv("NEPTUNE_API_TOKEN")
 
 if NEPTUNE_API_TOKEN is None:
@@ -117,7 +117,7 @@ def decode_quantizes(model, quantizes, device="cuda:0", batch_size=16, use_autoc
 
 
 root='/local/altamabp/audience_tuning-gem/vqvae'
-run_id='AUD-91'
+run_id='AUD-184'
 
 ckpt_vqvae = f"{root}/{run_id}/vqvae_val_best.pt"
 torch.cuda.set_device(1) 

@@ -7,15 +7,18 @@ CUDA_VISIBLE_DEVICES=1 CONFIG_FILE=configs/flat.yaml NEPTUNE_PROJECT=tns/audienc
 
 CUDA_VISIBLE_DEVICES=0 CONFIG_FILE=configs/masked_transformer.yaml NEPTUNE_PROJECT=tns/audience-tuning NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiIwMmExYTliOC1mYjkyLTQ4M2YtYjFiYS1iZWQ1Y2E0OTJlNTkifQ== torchrun --nproc_per_node=1 --master_port=29501 masked-transformer_train.py
 
+
+CUDA_VISIBLE_DEVICES=3 CONFIG_FILE=configs/flat.yaml NEPTUNE_PROJECT=tns/audience-tuning NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiIwMmExYTliOC1mYjkyLTQ4M2YtYjFiYS1iZWQ1Y2E0OTJlNTkifQ== torchrun --nproc_per_node=1 --master_port=29506 train_classifier.py
+
 python concatenate_latents.py   --root /local/altamabp/audience_tuning-gem/vqvae   --out  /local/altamabp/audience_tuning-gem/vqvae/AUD-concatenated_frozen-enc-dec   --strict-shapes
 
 
 NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiIwMmExYTliOC1mYjkyLTQ4M2YtYjFiYS1iZWQ1Y2E0OTJlNTkifQ== python extract_classifier_probs_from_latents_neptune.py \
   --project altamimi.aya/UTKFaces \
-  --vqvae_run AUD-91 \
+  --vqvae_run AUD-184 \
   --clf_run UT-479 \
-  --latents_root /local/altamabp/audience_tuning-gem/vqvae/AUD-91/latents \
-  --out_root /local/altamabp/audience_tuning-gem/vqvae/AUD-91/latents \
+  --latents_root /local/altamabp/audience_tuning-gem/vqvae/AUD-184/latents \
+  --out_root /local/altamabp/audience_tuning-gem/vqvae/AUD-184/latents \
   --output_kind probs \
   --decode_bs 16 \
   --clf_bs 64 \
@@ -23,3 +26,15 @@ NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdX
   --device_vqvae cuda:1 \
   --device_clf cuda:1 \
   --apply_training_normalize
+
+
+
+
+
+
+NEPTUNE_PROJECT=tns/audience-tuning NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiIwMmExYTliOC1mYjkyLTQ4M2YtYjFiYS1iZWQ1Y2E0OTJlNTkifQ== python extract_latents_updated_vqvae_probs.py \
+  --run_id AUD-184 \
+  --clf_ckpt /local/altamabp/audience_tuning-gem/classifier/weights_epoch27_AUD-184.pth \
+  --num_classes 10 \
+  --apply_training_normalize
+

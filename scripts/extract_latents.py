@@ -84,6 +84,6 @@ def extract_latents_from_neptune(run_id: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract latent representations from a trained VQ-VAE Neptune run.")
-    parser.add_argument("--run_id", type=str, default="AUD-91", help="Neptune run ID")
+    parser.add_argument("--run_id", type=str, default="AUD-184", help="Neptune run ID")
     args = parser.parse_args()
     extract_latents_from_neptune(args.run_id)
