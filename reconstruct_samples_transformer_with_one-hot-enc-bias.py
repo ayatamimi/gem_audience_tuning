@@ -200,45 +200,43 @@ def reconstruct_with_transformer(vqvae_run_id, transformer_run_id, num_samples=5
 
 
 
-# =============================================================================
-#     for bias_id in range(10):
-#         # 1) build one-hot bias (same bias for all samples in batch)
-#         idx_t = torch.full((B,), bias_id, dtype=torch.long, device=zq_masked.device)  # (B,)
-#         N, T, _ = zq_masked.shape
-#         idx_t_exp = idx_t.unsqueeze(1).expand(N, T)  # (B, T)
-# 
-# =============================================================================
-# =============================================================================
-#         one_hot_labels = torch.nn.functional.one_hot(
-#             idx_t_exp, num_classes=10
-#         ).to(dtype=zq_masked.dtype)  # (B, T, 10)
-# 
-#         masked_exp_quantizes = torch.cat([zq_masked, one_hot_labels], dim=2)  # (B, T, C+10)
-# 
-#         # mask feature
-#         mask_feat = mask.to(masked_exp_quantizes.dtype).unsqueeze(-1)  # (B, T, 1)
-# 
-#         masked_exp_mask_feat_quantizes = torch.cat(
-#             [masked_exp_quantizes, mask_feat], dim=-1
-#         )  # (B, T, C+10+1)
-# =============================================================================
+    for bias_id in range(10):
+        # 1) build one-hot bias (same bias for all samples in batch)
+        idx_t = torch.full((B,), bias_id, dtype=torch.long, device=zq_masked.device)  # (B,)
+        N, T, _ = zq_masked.shape
+        idx_t_exp = idx_t.unsqueeze(1).expand(N, T)  # (B, T)
+
+        one_hot_labels = torch.nn.functional.one_hot(
+            idx_t_exp, num_classes=10
+        ).to(dtype=zq_masked.dtype)  # (B, T, 10)
+
+        masked_exp_quantizes = torch.cat([zq_masked, one_hot_labels], dim=2)  # (B, T, C+10)
+
+        # mask feature
+        mask_feat = mask.to(masked_exp_quantizes.dtype).unsqueeze(-1)  # (B, T, 1)
+
+        masked_exp_mask_feat_quantizes = torch.cat(
+            [masked_exp_quantizes, mask_feat], dim=-1
+        )  # (B, T, C+10+1)
 
 
-#######added (RAM friendly version)
-    # 1) per-sample labels from dataset
-    idx_t = labels  # (B,) already on device
-    if idx_t.dtype != torch.long:
-        idx_t = idx_t.long()
-    
-    # expand to tokens: (B,T)
-    idx_t_exp = idx_t.unsqueeze(1).expand(N, T)
-    
-    # build [zq_masked, one_hot(idx_t_exp)] EXACTLY, but memory-safe
-    masked_exp_quantizes[..., :C_lat] = zq_masked
-    onehot_view.zero_()
-    onehot_view.scatter_(2, idx_t_exp.unsqueeze(-1), 1)
-
-#############
+# =============================================================================
+# #######added (RAM friendly version)
+#     # 1) per-sample labels from dataset
+#     idx_t = labels  # (B,) already on device
+#     if idx_t.dtype != torch.long:
+#         idx_t = idx_t.long()
+#     
+#     # expand to tokens: (B,T)
+#     idx_t_exp = idx_t.unsqueeze(1).expand(N, T)
+#     
+#     # build [zq_masked, one_hot(idx_t_exp)] EXACTLY, but memory-safe
+#     masked_exp_quantizes[..., :C_lat] = zq_masked
+#     onehot_view.zero_()
+#     onehot_view.scatter_(2, idx_t_exp.unsqueeze(-1), 1)
+# 
+# #############
+# =============================================================================
 
     # 2) transformer prediction
     logits = trans_model(masked_exp_quantizes) #masked_exp_mask_feat_quantizes) #  # (B, T, vocab_size)

@@ -15,39 +15,70 @@ import neptune
 from logging_neptune import CheckpointManager, NeptuneRun
 from distributed import set_seed
 from configs.config import get_transformer_config
-from masked_transformer.model import MaskedLatentTransformer
+from masked_transformer.model_ohe import MaskedLatentTransformer
 from masked_transformer.utils import mask_latents, build_scheduler
 
-def attach_bias_mask_feat(labels, masked_quantizes, mask):
-    
-    idx_t = torch.as_tensor(labels, dtype=torch.long, device=masked_quantizes.device)  # (N,)
+def attach_bias_ohe(labels, masked_quantizes, num_classes=10):
+    """
+    Returns: (B, T, D + num_classes)
+    Exactly equivalent to:
+        one_hot = F.one_hot(labels.unsqueeze(1).expand(B,T), num_classes).to(dtype)
+        torch.cat([masked_quantizes, one_hot], dim=-1)
+    but memory-safe (no one_hot tensor + no repeated cat allocations).
+    """
+    idx_t = torch.as_tensor(labels, dtype=torch.long, device=masked_quantizes.device)  # (B,)
 
-    N, T, _ = masked_quantizes.shape
-    idx_t_exp = idx_t.unsqueeze(1).expand(N, T)                         # (N, T)
+    B, T, D = masked_quantizes.shape
+    C = num_classes
+    device = masked_quantizes.device
+    dtype  = masked_quantizes.dtype
 
-    one_hot_labels = torch.nn.functional.one_hot(idx_t_exp, num_classes=10).to(dtype=masked_quantizes.dtype)  # (N,T,C)
+    # (B,T) view
+    idx_t_exp = idx_t.unsqueeze(1).expand(B, T)
 
-    masked_exp_quantizes = torch.cat([masked_quantizes, one_hot_labels], dim=2)
+    # allocate only final tensor
+    out = torch.empty((B, T, D + C), device=device, dtype=dtype)
+    out[..., :D] = masked_quantizes
+
+    tail = out[..., D:]          # (B,T,C) view
+    tail.zero_()
+    tail.scatter_(2, idx_t_exp.unsqueeze(-1), 1)
+
+    return out
 
 
-    #print('masked_exp_quantizes.shape: ',masked_exp_quantizes.shape)  # torch.Size([N, 64, 27])
-    # masked_exp_train_quantizes: torch.FloatTensor (N, T, 27)
-    # mask_train: numpy bool array (N, T)  True = masked
-
-    device = masked_exp_quantizes.device
-    dtype  = masked_exp_quantizes.dtype
-    
-   # 1) NumPy -> Torch, cast to float (1.0 masked, 0.0 unmasked)
-    mask_feat = torch.as_tensor(mask, device=device).to(dtype)   # (N, T)
-
-    # 2) Add feature axis
-    mask_feat = mask_feat.unsqueeze(-1)                                 # (N, T, 1)
-
-    # 3) Concatenate
-    masked_exp_mask_feat_quantizes = torch.cat([masked_exp_quantizes, mask_feat], dim=-1)  # (N, T, 27)
-    #print('masked_exp_mask_feat_quantizes.shape: ',masked_exp_mask_feat_quantizes.shape)
-
-    return masked_exp_quantizes #masked_exp_mask_feat_quantizes
+# =============================================================================
+# def attach_bias_mask_feat(labels, masked_quantizes, mask):
+#     
+#     idx_t = torch.as_tensor(labels, dtype=torch.long, device=masked_quantizes.device)  # (N,)
+# 
+#     N, T, _ = masked_quantizes.shape
+#     idx_t_exp = idx_t.unsqueeze(1).expand(N, T)                         # (N, T)
+# 
+#     one_hot_labels = torch.nn.functional.one_hot(idx_t_exp, num_classes=10).to(dtype=masked_quantizes.dtype)  # (N,T,C)
+# 
+#     masked_exp_quantizes = torch.cat([masked_quantizes, one_hot_labels], dim=2)
+# 
+# 
+#     #print('masked_exp_quantizes.shape: ',masked_exp_quantizes.shape)  # torch.Size([N, 64, 27])
+#     # masked_exp_train_quantizes: torch.FloatTensor (N, T, 27)
+#     # mask_train: numpy bool array (N, T)  True = masked
+# 
+#     device = masked_exp_quantizes.device
+#     dtype  = masked_exp_quantizes.dtype
+#     
+#    # 1) NumPy -> Torch, cast to float (1.0 masked, 0.0 unmasked)
+#     mask_feat = torch.as_tensor(mask, device=device).to(dtype)   # (N, T)
+# 
+#     # 2) Add feature axis
+#     mask_feat = mask_feat.unsqueeze(-1)                                 # (N, T, 1)
+# 
+#     # 3) Concatenate
+#     masked_exp_mask_feat_quantizes = torch.cat([masked_exp_quantizes, mask_feat], dim=-1)  # (N, T, 27)
+#     #print('masked_exp_mask_feat_quantizes.shape: ',masked_exp_mask_feat_quantizes.shape)
+# 
+#     return masked_exp_quantizes #masked_exp_mask_feat_quantizes
+# =============================================================================
 
 def train(cfg, resume_from=None):
     set_seed(cfg.seed)
@@ -140,12 +171,9 @@ def train(cfg, resume_from=None):
             zq, idx, labels = zq.to(device), idx.to(device), labels.to(device)
 
             zq_masked, target, mask, mask_prob = mask_latents(zq, idx,0.5)
-            masked_exp_mask_feat_train_quantizes = attach_bias_mask_feat(
-                labels, zq_masked, mask
-                )
-            
+            masked_exp_train_quantizes = attach_bias_ohe(labels, zq_masked, num_classes=10)
             optimizer.zero_grad()
-            logits = model(masked_exp_mask_feat_train_quantizes)
+            logits = model(masked_exp_train_quantizes)
             if cfg.loss_masked:
                 loss = criterion(logits[mask], target[mask])
             else:
@@ -172,11 +200,8 @@ def train(cfg, resume_from=None):
             for zq, idx, labels in tqdm(val_loader, desc=f"Epoch {epoch+1}/{cfg.epochs} [Val]"):
                 zq, idx, labels = zq.to(device), idx.to(device), labels.to(device)
                 zq_masked, target, mask , _= mask_latents(zq, idx, mask_prob)
-                masked_exp_mask_feat_val_quantizes = attach_bias_mask_feat(
-                    labels, zq_masked, mask
-                    )
-                
-                logits = model(masked_exp_mask_feat_val_quantizes)
+                masked_exp_train_quantizes = attach_bias_ohe(labels, zq_masked, num_classes=10)
+                logits = model(masked_exp_train_quantizes)
                 if cfg.loss_masked:
                     loss = criterion(logits[mask], target[mask])
                 else:
@@ -205,3 +230,10 @@ if __name__ == "__main__":
 
     cfg = get_transformer_config()
     train(cfg, resume_from=args.resume_from)
+
+
+
+# =============================================================================
+# torchrun --nproc_per_node=1 --master_port=29501 masked-transformer_train-ohe_bias.py
+# 
+# =============================================================================

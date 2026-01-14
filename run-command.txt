@@ -10,6 +10,12 @@ CUDA_VISIBLE_DEVICES=0 CONFIG_FILE=configs/masked_transformer.yaml NEPTUNE_PROJE
 
 CUDA_VISIBLE_DEVICES=3 CONFIG_FILE=configs/flat.yaml NEPTUNE_PROJECT=tns/audience-tuning NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiIwMmExYTliOC1mYjkyLTQ4M2YtYjFiYS1iZWQ1Y2E0OTJlNTkifQ== torchrun --nproc_per_node=1 --master_port=29506 train_classifier.py
 
+
+
+NEPTUNE_PROJECT=tns/audience-tuning NEPTUNE_API_TOKEN=eyJhcGlfYWRkcmVzcyI6Imh0dHBzOi8vYXBwLm5lcHR1bmUuYWkiLCJhcGlfdXJsIjoiaHR0cHM6Ly9hcHAubmVwdHVuZS5haSIsImFwaV9rZXkiOiIwMmExYTliOC1mYjkyLTQ4M2YtYjFiYS1iZWQ1Y2E0OTJlNTkifQ== CONFIG_FILE=configs/masked_transformer_one-hot-enc-bias.yaml \
+torchrun --nproc_per_node=1 --master_port=29597 masked-transformer_train-ohe_bias.py
+
+
 python concatenate_latents.py   --root /local/altamabp/audience_tuning-gem/vqvae   --out  /local/altamabp/audience_tuning-gem/vqvae/AUD-concatenated_frozen-enc-dec   --strict-shapes
 
 

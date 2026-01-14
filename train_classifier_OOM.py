@@ -39,31 +39,18 @@ print(torch.cuda.get_device_name(torch.cuda.current_device()))
 # Initialize CUDA
 torch.cuda.init()
 
-class LazyReconstructedDataset(Dataset):
-    def __init__(self, quantizes, labels, vqvae_model, device="cuda:1", use_autocast=True):
-        self.quantizes = quantizes          # numpy array (keep on CPU)
-        self.labels = labels                # torch tensor on CPU
-        self.model = vqvae_model
-        self.device = device
-        self.use_autocast = use_autocast
+class ReconstructedDataset(Dataset):
+    def __init__(self, images, labels):
+        self.images = images
+        self.labels = labels
 
     def __len__(self):
         return len(self.labels)
 
     def __getitem__(self, idx):
-        q = torch.as_tensor(self.quantizes[idx], dtype=torch.float32)  # CPU
-        y = self.labels[idx]
-        # decode ONE sample (or you can decode small batches via a custom collate_fn)
-        with torch.no_grad():
-            q = q.unsqueeze(0).to(self.device, non_blocking=True)
-            if self.use_autocast and ("cuda" in str(self.device)) and torch.cuda.is_available():
-                with torch.autocast(device_type="cuda", dtype=torch.float16):
-                    img = self.model.decode(q)
-            else:
-                img = self.model.decode(q)
-        img = img.squeeze(0).float().cpu()  # return to CPU for DataLoader
-        return img, y
-
+        image = self.images[idx]
+        label = self.labels[idx]
+        return image, label
     
 #pure CPU fallback (slow but safe)
 # =============================================================================
@@ -174,10 +161,17 @@ model_vqvae = model_vqvae.to(device)
 model_vqvae.eval()
 
 
-train_dataset = LazyReconstructedDataset(train_quantizes, train_labels, model_vqvae, device="cuda:1")
-val_dataset   = LazyReconstructedDataset(val_quantizes,   val_labels,   model_vqvae, device="cuda:1")
-test_dataset  = LazyReconstructedDataset(test_quantizes,  test_labels,  model_vqvae, device="cuda:1")
+reconstructed_images_train = decode_quantizes(model_vqvae, train_quantizes, device="cuda:1", batch_size=16)
+reconstructed_images_val = decode_quantizes(model_vqvae, val_quantizes, device="cuda:1", batch_size=16)
+reconstructed_images_test= decode_quantizes(model_vqvae, test_quantizes, device="cuda:1",  batch_size=16)
 
+
+
+
+
+train_dataset = ReconstructedDataset(reconstructed_images_train, train_labels)
+val_dataset=  ReconstructedDataset(reconstructed_images_val, val_labels)
+test_dataset=  ReconstructedDataset(reconstructed_images_test, test_labels)
 
 # =============================================================================
 # plot image with [-1,1] normalization
@@ -340,7 +334,7 @@ for model_name in models_list:
             inputs = transform(inputs)
             inputs, targets = inputs.to(device), targets.to(device)
 
-            outputs = classifier(inputs)
+            outputs = model(inputs)
             loss = criterion(outputs, targets)
 
             test_loss_sum += loss.item() * inputs.size(0)
